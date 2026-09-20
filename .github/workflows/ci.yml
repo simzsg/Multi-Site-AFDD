@@ -4,7 +4,7 @@ jobs:
   domain-and-ui:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with: {python-version: '3.13'}
       - uses: actions/setup-node@v4
@@ -24,7 +24,7 @@ jobs:
   compose-integration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker compose up --build -d --wait
       - run: docker compose stop simulator
       - run: docker compose cp scripts/compose_smoke.py api:/tmp/compose_smoke.py
