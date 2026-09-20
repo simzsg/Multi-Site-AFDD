@@ -1,0 +1,104 @@
+name: multi-site-afdd
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment: &environment
+    DATABASE_URL: postgresql+psycopg://afdd:${POSTGRES_PASSWORD:-afdd-local-only}@database:5432/afdd
+    REDIS_URL: redis://broker:6379/0
+    SOURCE_REPLAY_START: ${SOURCE_REPLAY_START:-2026-01-15T08:00:00Z}
+  restart: unless-stopped
+services:
+  database:
+    restart: unless-stopped
+    image: timescale/timescaledb:2.18.2-pg16
+    environment:
+      POSTGRES_USER: afdd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-afdd-local-only}
+      POSTGRES_DB: afdd
+    volumes: [database:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U afdd -d afdd"]
+      interval: 5s
+      retries: 20
+  broker:
+    restart: unless-stopped
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, 'yes', --appendfsync, everysec]
+    volumes: [broker:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      retries: 20
+  init:
+    <<: *backend
+    restart: 'no'
+    environment:
+      <<: *environment
+      SERVICE_NAME: init
+    command: [sh, -c, 'python -m app.runtime migrate && python -m app.runtime seed']
+    depends_on:
+      database: {condition: service_healthy}
+  api:
+    <<: *backend
+    environment:
+      <<: *environment
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      SERVICE_NAME: api
+    ports: ['127.0.0.1:8000:8000']
+    depends_on:
+      init: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      retries: 10
+  ingestion:
+    <<: *backend
+    environment:
+      <<: *environment
+      SERVICE_NAME: ingestion
+    command: [python, -m, app.runtime, ingestion]
+    depends_on:
+      init: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -m, app.healthcheck, ingestion]
+      interval: 15s
+      retries: 5
+  afdd-worker:
+    <<: *backend
+    environment:
+      <<: *environment
+      SERVICE_NAME: evaluator
+    command: [python, -m, app.runtime, evaluator]
+    depends_on:
+      init: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -m, app.healthcheck, evaluator]
+      interval: 15s
+      retries: 5
+  simulator:
+    <<: *backend
+    command: [sh, -c, 'python -m app.runtime source-simulate --acceleration "$${SOURCE_ACCELERATION}" --wait-for-rule']
+    restart: on-failure
+    environment:
+      <<: *environment
+      SOURCE_ACCELERATION: ${SOURCE_ACCELERATION:-60}
+      SERVICE_NAME: simulator
+    depends_on:
+      init: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
+  frontend:
+    restart: unless-stopped
+    build: ./frontend
+    ports: ['127.0.0.1:5173:80']
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
+      interval: 10s
+      retries: 5
+volumes:
+  database:
+  broker:

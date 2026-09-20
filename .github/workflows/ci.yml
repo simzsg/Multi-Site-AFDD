@@ -1,0 +1,36 @@
+name: Verify AFDD
+on: [push, pull_request]
+jobs:
+  domain-and-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: python -m venv .venv && .venv/bin/pip install -r backend/requirements.lock
+      - run: npm ci --prefix frontend
+      - run: ./scripts/check.sh
+      - run: PYTHONPATH=backend .venv/bin/python -m app.runtime pack-demo --confirm-review > /tmp/demo.log
+      - run: |
+          PYTHONPATH=backend .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
+          npm run dev --prefix frontend > /tmp/frontend.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:5173/ && break || sleep 1; done
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+  compose-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d --wait
+      - run: docker compose stop simulator
+      - run: docker compose cp scripts/compose_smoke.py api:/tmp/compose_smoke.py
+      - run: docker compose exec -T -e PYTHONPATH=/app api python /tmp/compose_smoke.py
+      - run: ./scripts/verify_proxy_recovery.sh
+      - if: always()
+        run: docker compose logs --no-color
+      - if: always()
+        run: docker compose down -v
