@@ -1,8 +1,15 @@
 from fastapi import APIRouter
 
+from app.semantic import manifest
+
 from ..dependencies import InventoryDep
 
 router = APIRouter()
+
+
+@router.get("/api/ontology")
+def ontology_manifest():
+    return manifest()
 
 
 @router.get("/api/entities")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from ..dependencies import IssuesDep
 
@@ -6,8 +6,14 @@ router = APIRouter()
 
 
 @router.get("/api/issues")
-def list_issues(service: IssuesDep):
-    return service.list_issues()
+def list_issues(
+    service: IssuesDep,
+    status: str | None = None,
+    equipment_id: str | None = None,
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+):
+    return service.list_issues(status, equipment_id, limit, offset)
 
 
 @router.get("/api/issues/{identity}")

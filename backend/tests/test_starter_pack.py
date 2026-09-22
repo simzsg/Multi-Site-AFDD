@@ -7,6 +7,7 @@ from app.ingestion import ingest
 from app.ontology import Registry
 from app.schemas import Confirmation, RuleConfig
 from app.seed import import_inventory
+from app.simulation.live import live_event
 
 
 @pytest.fixture
@@ -49,6 +50,28 @@ def test_source_delivery_order_and_original_ids():
     assert ahu_records[-1][-1]["observed_at"] == "2026-01-15T09:10:00Z"
     assert ahu_records[-1][0] == "2026-01-15T13:59:00Z"
     assert sum(item[-1]["source_record_id"] == "src-ahu-0100-001" for item in ahu_records) == 2
+
+
+def test_live_source_events_keep_provenance_and_duplicate_semantics():
+    original = {
+        "event_id": "source-event",
+        "point_id": "point",
+        "device_timestamp": "2026-01-15T08:00:00Z",
+        "source": {"file": "fixture.csv"},
+    }
+    at = db.utcnow()
+    first = live_event(original, at, "run", 2)
+    duplicate = live_event(dict(original), at, "run", 2)
+    next_cycle = live_event(original, at, "run", 3)
+    assert first["event_id"] == duplicate["event_id"]
+    assert first["event_id"] != next_cycle["event_id"]
+    assert first["device_timestamp"] == db.iso(at)
+    assert first["source"] == {
+        "file": "fixture.csv",
+        "mode": "live-source",
+        "original_event_id": "source-event",
+        "original_device_timestamp": "2026-01-15T08:00:00Z",
+    }
 
 
 def test_blank_measurement_is_null_not_fake_normal(source_engine):

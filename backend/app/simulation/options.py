@@ -18,3 +18,12 @@ class SourceOptions:
     wait_for_rule: bool = False
     steps: int = 0
     buildings: str | None = None
+
+
+@dataclass(frozen=True)
+class LiveSourceOptions:
+    pack: str = str(DEFAULT_PACK)
+    interval: int = 60
+    wait_for_rule: bool = False
+    steps: int = 0
+    buildings: str | None = None

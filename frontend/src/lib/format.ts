@@ -3,6 +3,8 @@ export const example =
 export const date = (value?: string | null) =>
   value
     ? new Date(value).toLocaleString([], {
+        timeZone: "UTC",
+        timeZoneName: "short",
         month: "short",
         day: "numeric",
         hour: "2-digit",
@@ -12,6 +14,8 @@ export const date = (value?: string | null) =>
     : "Not yet observed";
 export const time = (value: string) =>
   new Date(value).toLocaleTimeString([], {
+    timeZone: "UTC",
+    timeZoneName: "short",
     hour: "2-digit",
     minute: "2-digit",
   });

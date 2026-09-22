@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import { api } from "../lib/api";
 import { example, stale } from "../lib/format";
+import { useOntologyIndex } from "./useOntologyIndex";
 export function useWorkspaceController() {
   const [view, setView] = useState<
     "overview" | "issues" | "rules" | "pipeline"
@@ -93,28 +94,8 @@ export function useWorkspaceController() {
       setBusy(false);
     }
   };
-  const entity = (id: string) => entities.find((e) => e.id === id);
-  const label = (id: string) => entity(id)?.label ?? id;
-  const related = (id: string, relation: string) =>
-    edges
-      .filter((e) => e.source === id && e.relation === relation)
-      .map((e) => entity(e.target))
-      .filter((e): e is Entity => !!e);
-  const parent = (id: string, kind: string) =>
-    edges
-      .filter((e) => e.target === id && e.relation === "hasPart")
-      .map((e) => entity(e.source))
-      .find((e) => e?.kind === kind);
-  const zonesFor = (eq: Entity) =>
-    related(eq.id, "feeds").filter((e) => e.kind === "HVAC_Zone");
-  const floorsFor = (eq: Entity) =>
-    zonesFor(eq)
-      .map((z) => parent(z.id, "Floor"))
-      .filter((e): e is Entity => !!e);
-  const buildingFor = (eq: Entity) =>
-    floorsFor(eq)
-      .map((f) => parent(f.id, "Building"))
-      .find(Boolean);
+  const { entity, label, related, parent, zonesFor, floorsFor, buildingFor } =
+    useOntologyIndex(entities, edges);
   const buildings = entities.filter((e) => e.kind === "Building");
   const floors = entities.filter(
     (e) =>

@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections import defaultdict
 
 from . import db
 from .schemas import RuleConfig
@@ -9,21 +10,24 @@ class Registry:
     def __init__(self, conn):
         self.entities = {e["id"]: e for e in db.rows(conn, db.entities)}
         self.edges = db.rows(conn, db.edges)
+        self._outgoing = defaultdict(list)
+        self._incoming = defaultdict(list)
+        for edge in self.edges:
+            self._outgoing[(edge["source"], edge["relation"])].append(edge["target"])
+            self._incoming[(edge["target"], edge["relation"])].append(edge["source"])
 
     def related(self, source, relation):
         return [
-            self.entities[e["target"]]
-            for e in self.edges
-            if e["source"] == source and e["relation"] == relation and e["target"] in self.entities
+            self.entities[target]
+            for target in self._outgoing[(source, relation)]
+            if target in self.entities
         ]
 
     def parents(self, target, kind):
         return [
-            self.entities[e["source"]]
-            for e in self.edges
-            if e["target"] == target
-            and e["relation"] == "hasPart"
-            and self.entities.get(e["source"], {}).get("kind") == kind
+            self.entities[source]
+            for source in self._incoming[(target, "hasPart")]
+            if self.entities.get(source, {}).get("kind") == kind
         ]
 
     def spaces(self, equipment_id):

@@ -57,6 +57,12 @@ export function IssueInvestigation() {
                 the AHU was{" "}
                 {issue.data.effective.operating_equals ? "ON" : "OFF"}.
               </p>
+              <p>
+                Triggered {date(issue.data.triggered_at)} ·{" "}
+                {issue.data.recovered_at
+                  ? `Recovered ${date(issue.data.recovered_at)}`
+                  : "Issue remains active"}
+              </p>
             </div>
             <Badge>Rule v{issue.data.rule_version}</Badge>
           </div>

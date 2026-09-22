@@ -33,7 +33,12 @@ type ReadingsProps = {
   overlayRef: React.RefObject<HTMLDivElement | null>;
 };
 
-export function SceneReadings({ points, current, onSelectPoint, overlayRef }: ReadingsProps) {
+export function SceneReadings({
+  points,
+  current,
+  onSelectPoint,
+  overlayRef,
+}: ReadingsProps) {
   const displayed = points.filter((point) => anchors[point.kind]);
   return (
     <div
@@ -62,7 +67,9 @@ export function SceneReadings({ points, current, onSelectPoint, overlayRef }: Re
           aria-label={`View history: ${point.label}`}
           className="pointer-events-auto absolute left-0 top-0 block w-[120px] rounded-lg border border-alto-500/30 bg-white/95 p-2 text-left shadow-sm hover:border-alto-700 focus:ring-2 focus:ring-alto-700"
         >
-          <span className="block text-[10px] text-alto-700">{labels[point.kind]} ↗</span>
+          <span className="block text-[10px] text-alto-700">
+            {labels[point.kind]} ↗
+          </span>
           <Value point={point} current={current} />
         </button>
       ))}

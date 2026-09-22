@@ -324,7 +324,9 @@ export default function EquipmentScene(props: SceneProps) {
           overlayRef={overlay}
         />
       )}
-      {failed && <SceneFallback onRetry={() => setRetry((value) => value + 1)} />}
+      {failed && (
+        <SceneFallback onRetry={() => setRetry((value) => value + 1)} />
+      )}
     </div>
   );
 }

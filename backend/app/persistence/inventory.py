@@ -1,9 +1,12 @@
 from dataclasses import dataclass
 
+from sqlalchemy import or_
 from sqlalchemy.engine import Engine
 
 from app import db
 from app.ontology import Registry
+from app.semantic import entity as semantic_entity
+from app.semantic import relationship as semantic_relationship
 
 from .records import require_record
 
@@ -14,31 +17,57 @@ class InventoryQueries:
 
     def entities(self, kind: str | None = None):
         with self.engine.connect() as conn:
-            return [e for e in db.rows(conn, db.entities) if not kind or e["kind"] == kind]
+            query = db.entities.select()
+            if kind:
+                query = query.where(db.entities.c.kind == kind)
+            query = query.order_by(db.entities.c.id)
+            return [semantic_entity(dict(row)) for row in conn.execute(query).mappings()]
 
     def equipment(self):
-        return [
-            e for e in self.entities() if e["kind"] in {"AHU", "IAQ_Device", "Electrical_Meter"}
-        ]
+        with self.engine.connect() as conn:
+            query = (
+                db.entities.select()
+                .where(db.entities.c.kind.in_(("AHU", "IAQ_Device", "Electrical_Meter")))
+                .order_by(db.entities.c.id)
+            )
+            return [semantic_entity(dict(row)) for row in conn.execute(query).mappings()]
 
     def points(self):
         return [e for e in self.entities() if "unit" in e["data"]]
 
     def relationships(self):
         with self.engine.connect() as conn:
-            return db.rows(conn, db.edges)
+            query = db.edges.select().order_by(
+                db.edges.c.source, db.edges.c.relation, db.edges.c.target
+            )
+            return [semantic_relationship(dict(row)) for row in conn.execute(query).mappings()]
 
     def equipment_relationships(self, identity: str):
         with self.engine.connect() as conn:
             require_record(conn, db.entities, identity)
-            return [e for e in db.rows(conn, db.edges) if identity in (e["source"], e["target"])]
+            query = (
+                db.edges.select()
+                .where(or_(db.edges.c.source == identity, db.edges.c.target == identity))
+                .order_by(db.edges.c.source, db.edges.c.relation, db.edges.c.target)
+            )
+            return [semantic_relationship(dict(row)) for row in conn.execute(query).mappings()]
 
     def spaces(self, identity: str):
         with self.engine.connect() as conn:
             require_record(conn, db.entities, identity)
-            return Registry(conn).spaces(identity)
+            spaces = Registry(conn).spaces(identity)
+            return {
+                **spaces,
+                "zones": [semantic_entity(entity) for entity in spaces["zones"]],
+                "rooms": [semantic_entity(entity) for entity in spaces["rooms"]],
+                "installation": [semantic_entity(entity) for entity in spaces["installation"]],
+            }
 
     def zone_rooms(self, identity: str):
         with self.engine.connect() as conn:
             require_record(conn, db.entities, identity)
-            return [r for r in Registry(conn).related(identity, "hasPart") if r["kind"] == "Room"]
+            return [
+                semantic_entity(entity)
+                for entity in Registry(conn).related(identity, "hasPart")
+                if entity["kind"] == "Room"
+            ]

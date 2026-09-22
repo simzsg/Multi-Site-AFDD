@@ -17,6 +17,7 @@ def client(engine):
 
 def test_discovery_and_served_relationship_contract(client):
     entities = client.get("/api/entities").json()
+    assert all(entity["semantic_type"].startswith(("https://", "urn:")) for entity in entities)
     for path, kind in [
         ("buildings", "Building"),
         ("floors", "Floor"),
@@ -34,6 +35,7 @@ def test_discovery_and_served_relationship_contract(client):
     }
     assert all("unit" in point["data"] for point in client.get("/api/points").json())
     edges = client.get("/api/relationships").json()
+    assert all(edge["semantic_relation"].startswith("https://") for edge in edges)
     assert client.get(f"/api/equipment/{EQ}/relationships").json() == [
         edge for edge in edges if EQ in (edge["source"], edge["target"])
     ]
@@ -46,6 +48,10 @@ def test_discovery_and_served_relationship_contract(client):
     )
     zone = served["zones"][0]["id"]
     assert client.get(f"/api/zones/{zone}/rooms").json() == served["rooms"]
+    ontology = client.get("/api/ontology").json()
+    assert ontology["brick_version"] == "1.4.4"
+    assert ontology["entity_types"]["AHU"].endswith("#AHU")
+    assert ontology["relationships"]["measuresSpace"].endswith("#meters")
     for path in ["relationships", "served-spaces"]:
         response = client.get(f"/api/equipment/absent/{path}")
         assert response.status_code == 404
@@ -133,3 +139,41 @@ def test_rule_versions_confirmation_disable_and_audit_contract(client):
     for operation in ["validate", "preview", "disable"]:
         assert client.post(f"/api/rules/absent/{operation}").status_code == 404
     assert client.get("/api/rules/absent/versions").status_code == 404
+
+
+def test_issue_list_filters_and_bounds(client, engine):
+    with db.transaction(engine) as conn:
+        conn.execute(
+            db.issues.insert(),
+            [
+                {
+                    "id": "issue-old",
+                    "version_id": "version",
+                    "equipment_id": EQ,
+                    "status": "RECOVERED",
+                    "data": {"created_at": "2026-01-01T00:00:00+00:00"},
+                },
+                {
+                    "id": "issue-new",
+                    "version_id": "version",
+                    "equipment_id": "other-equipment",
+                    "status": "ACTIVE",
+                    "data": {"created_at": "2026-01-02T00:00:00+00:00"},
+                },
+            ],
+        )
+    assert [row["id"] for row in client.get("/api/issues").json()] == [
+        "issue-new",
+        "issue-old",
+    ]
+    assert [row["id"] for row in client.get("/api/issues", params={"status": "ACTIVE"}).json()] == [
+        "issue-new"
+    ]
+    assert [row["id"] for row in client.get("/api/issues", params={"equipment_id": EQ}).json()] == [
+        "issue-old"
+    ]
+    assert [
+        row["id"] for row in client.get("/api/issues", params={"limit": 1, "offset": 1}).json()
+    ] == ["issue-old"]
+    assert client.get("/api/issues", params={"limit": 0}).status_code == 422
+    assert client.get("/api/issues", params={"offset": -1}).status_code == 422

@@ -2,6 +2,8 @@ export type Entity = {
   id: string;
   kind: string;
   label: string;
+  semantic_type?: string;
+  semantic_unit?: string;
   data: {
     unit?: string;
     source?: string;
@@ -10,7 +12,12 @@ export type Entity = {
     occupied?: boolean;
   };
 };
-export type Edge = { source: string; relation: string; target: string };
+export type Edge = {
+  source: string;
+  relation: string;
+  target: string;
+  semantic_relation: string;
+};
 export type Observation = {
   event_id: string;
   point_id: string;

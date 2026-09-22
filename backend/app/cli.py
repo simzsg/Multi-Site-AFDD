@@ -7,7 +7,8 @@ from app.config import Settings
 from app.seed import import_inventory, seed
 from app.simulation.demo import demo, pack_demo
 from app.simulation.jsonl import replay_jsonl
-from app.simulation.options import SourceOptions, SyntheticOptions
+from app.simulation.live import live_source_simulate
+from app.simulation.options import LiveSourceOptions, SourceOptions, SyntheticOptions
 from app.simulation.source import source_simulate
 from app.simulation.synthetic import simulate
 from app.workers.evaluation import EvaluationWorker
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
             "demo",
             "pack-demo",
             "source-simulate",
+            "live-source-simulate",
         ],
     )
     parser.add_argument("--inventory")
@@ -99,6 +101,19 @@ def main(argv: list[str] | None = None) -> None:
                         SourceOptions(
                             pack=args.pack,
                             acceleration=args.acceleration,
+                            wait_for_rule=args.wait_for_rule,
+                            steps=args.steps,
+                            buildings=args.buildings,
+                        ),
+                        client=client,
+                        stream=settings.telemetry_stream,
+                    )
+                elif args.command == "live-source-simulate":
+                    live_source_simulate(
+                        engine,
+                        LiveSourceOptions(
+                            pack=args.pack,
+                            interval=args.interval,
                             wait_for_rule=args.wait_for_rule,
                             steps=args.steps,
                             buildings=args.buildings,

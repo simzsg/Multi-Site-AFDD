@@ -80,11 +80,11 @@ services:
       retries: 5
   simulator:
     <<: *backend
-    command: [sh, -c, 'python -m app.runtime source-simulate --acceleration "$${SOURCE_ACCELERATION}" --wait-for-rule']
+    command: [sh, -c, 'python -m app.runtime live-source-simulate --interval "$${SOURCE_INTERVAL}" --wait-for-rule']
     restart: on-failure
     environment:
       <<: *environment
-      SOURCE_ACCELERATION: ${SOURCE_ACCELERATION:-60}
+      SOURCE_INTERVAL: ${SOURCE_INTERVAL:-60}
       SERVICE_NAME: simulator
     depends_on:
       init: {condition: service_completed_successfully}

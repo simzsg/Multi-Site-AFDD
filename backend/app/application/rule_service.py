@@ -15,7 +15,10 @@ class RuleService:
 
     def list_rules(self):
         with self.engine.connect() as conn:
-            return db.rows(conn, db.versions)
+            query = db.versions.select().order_by(
+                db.versions.c.created_at, db.versions.c.rule_id, db.versions.c.version
+            )
+            return [dict(row) for row in conn.execute(query).mappings()]
 
     def create_rule(self, config: RuleConfig):
         with db.transaction(self.engine) as conn:
@@ -45,15 +48,21 @@ class RuleService:
                 confirmation,
                 source_replay_start=self.source_replay_start,
             )
-            for req in db.rows(conn, db.ai_requests):
-                if req["data"].get("draft", {}).get("id") == identity:
-                    data = {
-                        **req["data"],
-                        "state": "ACTIVATED",
-                        "human_confirmation": confirmation.model_dump(),
-                        "activation_result": result,
-                    }
-                    db.put(conn, db.ai_requests, req["id"], {"data": data})
+            requests = list(
+                conn.execute(
+                    db.ai_requests.select().where(
+                        db.ai_requests.c.data["draft"]["id"].as_string() == identity
+                    )
+                ).mappings()
+            )
+            for request in requests:
+                data = {
+                    **request["data"],
+                    "state": "ACTIVATED",
+                    "human_confirmation": confirmation.model_dump(),
+                    "activation_result": result,
+                }
+                db.put(conn, db.ai_requests, request["id"], {"data": data})
             return result
 
     def disable(self, identity: str):
@@ -70,4 +79,9 @@ class RuleService:
     def rule_versions(self, identity: str):
         with self.engine.connect() as conn:
             old = require_record(conn, db.versions, identity)
-            return [v for v in db.rows(conn, db.versions) if v["rule_id"] == old["rule_id"]]
+            query = (
+                db.versions.select()
+                .where(db.versions.c.rule_id == old["rule_id"])
+                .order_by(db.versions.c.version)
+            )
+            return [dict(row) for row in conn.execute(query).mappings()]

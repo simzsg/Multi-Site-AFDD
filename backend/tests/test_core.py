@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from app import db, rules
+from app import db, evaluator, rules
 from app.evaluator import drain
 from app.ingestion import ingest
 from app.ontology import Registry
@@ -86,6 +86,31 @@ def test_ingestion(engine):
             {"value": float("inf")},
         ]:
             assert ingest(c, {**event("Run_Status", 11, 1), **change})["status"] == "rejected"
+
+
+def test_live_timeline_transition_is_not_reported_as_device_gap(engine):
+    with db.transaction(engine) as c:
+        ingest(c, event("Run_Status", 0, 1, source={"file": "fixture.csv"}))
+        ingest(
+            c,
+            event(
+                "Run_Status",
+                10,
+                1,
+                source={"mode": "live-source", "original_event_id": "fixture-1"},
+            ),
+        )
+        assert not [row for row in db.rows(c, db.audit) if row["action"] == "data_gap"]
+        ingest(
+            c,
+            event(
+                "Run_Status",
+                13,
+                1,
+                source={"mode": "live-source", "original_event_id": "fixture-2"},
+            ),
+        )
+        assert len([row for row in db.rows(c, db.audit) if row["action"] == "data_gap"]) == 1
 
 
 def test_boundary_recovery_recurrence_and_evidence(engine):
@@ -242,3 +267,18 @@ def test_non_default_comparison_logic(engine):
         issue = db.rows(c, db.issues)[0]
         assert issue["data"]["severity"] == "WARNING"
         assert issue["data"]["calculated_difference"] == 1
+
+
+def test_evaluator_limits_each_outbox_transaction(engine, monkeypatch):
+    monkeypatch.setattr(evaluator, "OUTBOX_BATCH_SIZE", 2)
+    with db.transaction(engine) as conn:
+        for minute in range(3):
+            ingest(conn, event("Run_Status", minute, 1))
+        assert drain(conn, force=True) == 2
+        assert drain(conn, force=True) == 1
+        health = (
+            conn.execute(db.health.select().where(db.health.c.service == "evaluator"))
+            .mappings()
+            .one()
+        )
+        assert health["data"]["pending"] == 0

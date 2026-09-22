@@ -2,9 +2,13 @@ from collections import defaultdict
 from datetime import timedelta
 from uuid import uuid4
 
+from sqlalchemy import func, select
+
 from . import db
 from .ontology import Registry
 from .schemas import RuleConfig
+
+OUTBOX_BATCH_SIZE = 5000
 
 
 def compare(left, right, logic):
@@ -17,6 +21,35 @@ def compare(left, right, logic):
         else difference > logic["threshold"]
     )
     return difference, fault
+
+
+def latest_observations(conn, point_ids, at):
+    if not point_ids:
+        return {}
+    rank = (
+        func.row_number()
+        .over(
+            partition_by=db.telemetry.c.point_id,
+            order_by=db.telemetry.c.device_timestamp.desc(),
+        )
+        .label("latest_rank")
+    )
+    ranked = (
+        select(*db.telemetry.c, rank)
+        .where(
+            db.telemetry.c.point_id.in_(point_ids),
+            db.telemetry.c.device_timestamp <= at,
+        )
+        .subquery()
+    )
+    observations = {}
+    for row in conn.execute(select(ranked).where(ranked.c.latest_rank == 1)).mappings():
+        item = dict(row)
+        item.pop("latest_rank")
+        item["device_timestamp"] = db.iso(item["device_timestamp"])
+        item["received_at"] = db.iso(item["received_at"])
+        observations[item["point_id"]] = item
+    return observations
 
 
 def evaluate_frame(conn, version, match, at, observations):
@@ -122,9 +155,17 @@ def drain(conn, force=False):
     if not db.try_lock(conn, "evaluation_drain"):
         return 0
     registry = Registry(conn)
+    pending_count = conn.execute(
+        select(func.count()).select_from(db.outbox).where(db.outbox.c.done.is_(False))
+    ).scalar_one()
     pending = [
         dict(r)
-        for r in conn.execute(db.outbox.select().where(db.outbox.c.done.is_(False))).mappings()
+        for r in conn.execute(
+            db.outbox.select()
+            .where(db.outbox.c.done.is_(False))
+            .order_by(db.outbox.c.id)
+            .limit(OUTBOX_BATCH_SIZE)
+        ).mappings()
     ]
     if not pending:
         db.put(
@@ -134,7 +175,12 @@ def drain(conn, force=False):
             {"data": {"last_evaluated_at": db.iso(db.utcnow()), "processed": 0, "status": "idle"}},
         )
         return 0
-    versions = [v for v in db.rows(conn, db.versions) if v["status"] == "ACTIVE"]
+    versions = [
+        dict(row)
+        for row in conn.execute(
+            db.versions.select().where(db.versions.c.status == "ACTIVE")
+        ).mappings()
+    ]
     point_times = defaultdict(list)
     for row in pending:
         point_times[row["data"]["device_timestamp"]].append(row)
@@ -150,34 +196,21 @@ def drain(conn, force=False):
             break
         at = db.stamp(timestamp)
         changed = {r["data"]["point_id"] for r in batch}
+        candidates = []
         for version in versions:
             if version["activation"] and at < db.stamp(version["activation"]["event_time_start"]):
                 continue
             for match in matches[version["id"]]:
                 if not changed.intersection(match["points"].values()):
                     continue
-                observations = {}
-                for point_id in match["points"].values():
-                    r = (
-                        conn.execute(
-                            db.telemetry.select()
-                            .where(
-                                db.telemetry.c.point_id == point_id,
-                                db.telemetry.c.device_timestamp <= at,
-                            )
-                            .order_by(db.telemetry.c.device_timestamp.desc())
-                            .limit(1)
-                        )
-                        .mappings()
-                        .first()
-                    )
-                    if r:
-                        observations[point_id] = {
-                            **dict(r),
-                            "device_timestamp": db.iso(r["device_timestamp"]),
-                            "received_at": db.iso(r["received_at"]),
-                        }
-                evaluate_frame(conn, version, match, at, observations)
+                candidates.append((version, match))
+        observations = latest_observations(
+            conn,
+            {point_id for _, match in candidates for point_id in match["points"].values()},
+            at,
+        )
+        for version, match in candidates:
+            evaluate_frame(conn, version, match, at, observations)
         conn.execute(
             db.outbox.update()
             .where(db.outbox.c.id.in_([row["id"] for row in batch]))
@@ -192,7 +225,7 @@ def drain(conn, force=False):
             "data": {
                 "last_evaluated_at": db.iso(db.utcnow()),
                 "processed": processed,
-                "pending": len(pending) - processed,
+                "pending": pending_count - processed,
                 "status": "running",
             }
         },

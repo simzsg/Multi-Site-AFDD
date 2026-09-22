@@ -28,16 +28,16 @@ class OperationsQueries:
             services["pending_evaluations"] = conn.execute(
                 select(func.count()).select_from(db.outbox).where(db.outbox.c.done.is_(False))
             ).scalar()
-            services["rejected"] = conn.execute(
-                select(func.count()).select_from(db.audit).where(db.audit.c.action == "rejected")
-            ).scalar()
-            services["duplicates"] = conn.execute(
-                select(func.count()).select_from(db.audit).where(db.audit.c.action == "duplicate")
-            ).scalar()
-            for action in ["late", "incomplete", "data_gap"]:
-                services[action] = conn.execute(
-                    select(func.count()).select_from(db.audit).where(db.audit.c.action == action)
-                ).scalar()
+            actions = ("rejected", "duplicate", "late", "incomplete", "data_gap")
+            counts = dict(
+                conn.execute(
+                    select(db.audit.c.action, func.count())
+                    .where(db.audit.c.action.in_(actions))
+                    .group_by(db.audit.c.action)
+                ).all()
+            )
+            for action in actions:
+                services[action if action != "duplicate" else "duplicates"] = counts.get(action, 0)
             return services
 
     def ingestion_health(self):

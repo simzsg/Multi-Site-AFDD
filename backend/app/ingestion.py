@@ -71,7 +71,12 @@ def ingest(conn, payload):
                 observation.device_timestamp - db.stamp(latest["data"]["device_timestamp"])
             ).total_seconds()
             expected = point["data"].get("expected_interval_seconds", 60)
-            if gap_seconds > expected * 1.5:
+            previous_source = latest["data"].get("source") or {}
+            entering_live_timeline = (
+                observation.source.get("mode") == "live-source"
+                and previous_source.get("mode") != "live-source"
+            )
+            if not entering_live_timeline and gap_seconds > expected * 1.5:
                 db.log(
                     conn,
                     "data_gap",
@@ -119,14 +124,6 @@ def ingest(conn, payload):
                     "status": "running",
                 }
             },
-        )
-        db.log(
-            conn,
-            "ingested",
-            event_id=observation.event_id,
-            point_id=observation.point_id,
-            device_timestamp=data["device_timestamp"],
-            current_updated=is_newer,
         )
         return {"status": "accepted", "current_updated": is_newer}
     except (ValueError, ValidationError) as exc:
