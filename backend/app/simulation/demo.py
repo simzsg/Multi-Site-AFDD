@@ -4,7 +4,7 @@ from uuid import uuid4
 from app import db, rules, starter_pack
 from app.evaluator import drain
 from app.ingestion import ingest
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 from app.schemas import Confirmation, RuleConfig
 from app.seed import import_inventory, seed
 
@@ -26,7 +26,7 @@ def demo(engine, confirmed=False):
             name="Tenant comfort · Supply air deviation", overrides={"demo-b": {"threshold": 4}}
         )
         v = rules.create(conn, config)
-        preview = Registry(conn).preview(config)
+        preview = load_registry(conn).preview(config)
         v = rules.activate(
             conn,
             v,
@@ -45,7 +45,7 @@ def demo(engine, confirmed=False):
         conn.execute(
             db.versions.update().where(db.versions.c.id == v["id"]).values(activation=activation)
         )
-        registry = Registry(conn)
+        registry = load_registry(conn)
         run_id = str(uuid4())
         for step in range(21):
             for event in readings(
@@ -68,7 +68,7 @@ def pack_demo(engine, pack, confirmed=False):
             overrides={"building-b": {"threshold": 2}},
         )
         version = rules.create(conn, config)
-        preview = Registry(conn).preview(config)
+        preview = load_registry(conn).preview(config)
         rules.activate(
             conn,
             version,
@@ -79,7 +79,7 @@ def pack_demo(engine, pack, confirmed=False):
             ),
             source_replay_start="2026-01-15T08:00:00Z",
         )
-        registry = Registry(conn)
+        registry = load_registry(conn)
     for delivery_at, events in starter_pack.batches(registry, pack):
         with db.transaction(engine) as conn:
             for event in events:

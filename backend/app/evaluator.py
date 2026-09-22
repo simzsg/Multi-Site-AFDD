@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from . import db
-from .ontology import Registry
+from .persistence.ontology import load_registry
 from .schemas import RuleConfig
 
 OUTBOX_BATCH_SIZE = 5000
@@ -154,7 +154,7 @@ def evaluate_frame(conn, version, match, at, observations):
 def drain(conn, force=False):
     if not db.try_lock(conn, "evaluation_drain"):
         return 0
-    registry = Registry(conn)
+    registry = load_registry(conn)
     pending_count = conn.execute(
         select(func.count()).select_from(db.outbox).where(db.outbox.c.done.is_(False))
     ).scalar_one()

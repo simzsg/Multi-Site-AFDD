@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection, Engine
 from . import db
 
 BASELINE_REVISION = "20260920_0001"
-HEAD_REVISION = "20260920_0002"
+HEAD_REVISION = "20260920_0003"
 BASELINE_INDEXES = {
     "ix_entities_kind",
     "ix_telemetry_point_id",
@@ -18,6 +18,19 @@ BASELINE_INDEXES = {
     "ix_evaluation_outbox_done",
     "ix_rule_versions_rule_id",
     "ix_issues_version_id",
+}
+V2_INDEXES = {
+    *(BASELINE_INDEXES - {"ix_evaluation_outbox_done"}),
+    "ix_edges_source_relation",
+    "ix_edges_target_relation",
+    "ix_evaluation_outbox_pending_id",
+    "ix_rule_versions_status",
+    "ix_issues_status_equipment",
+    "ix_audit_events_action_id",
+}
+HEAD_INDEXES = {
+    *(V2_INDEXES - {"ix_telemetry_point_time"}),
+    "uq_telemetry_point_time",
 }
 
 
@@ -58,10 +71,19 @@ def _validate_unversioned_schema(connection: Connection) -> str:
         for index in inspector.get_indexes(table)
         if index["name"]
     }
-    current_indexes = {
-        index.name for table in db.metadata.tables.values() for index in table.indexes if index.name
-    }
-    if not (BASELINE_INDEXES.issubset(actual_indexes) or current_indexes.issubset(actual_indexes)):
+    revision = next(
+        (
+            revision
+            for revision, required_indexes in (
+                (HEAD_REVISION, HEAD_INDEXES),
+                ("20260920_0002", V2_INDEXES),
+                (BASELINE_REVISION, BASELINE_INDEXES),
+            )
+            if required_indexes.issubset(actual_indexes)
+        ),
+        None,
+    )
+    if revision is None:
         raise RuntimeError("Unversioned database is missing baseline indexes")
     if connection.dialect.name == "postgresql":
         extension = connection.execute(
@@ -75,7 +97,7 @@ def _validate_unversioned_schema(connection: Connection) -> str:
         ).scalar()
         if not extension or not hypertable:
             raise RuntimeError("Unversioned PostgreSQL schema is missing its Timescale hypertable")
-    return HEAD_REVISION if current_indexes.issubset(actual_indexes) else BASELINE_REVISION
+    return revision
 
 
 def upgrade(engine: Engine) -> str:

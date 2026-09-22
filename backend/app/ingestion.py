@@ -30,7 +30,7 @@ def ingest(conn, payload):
             raise ValueError("Device timestamp more than five minutes in future")
         data = observation.model_dump(mode="json")
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-        db.lock(conn, "event_receipt", observation.event_id)
+        db.lock(conn, "telemetry_point", observation.point_id)
         receipt = (
             conn.execute(db.receipts.select().where(db.receipts.c.event_id == observation.event_id))
             .mappings()
@@ -51,11 +51,28 @@ def ingest(conn, payload):
         ).first()
         if collision:
             raise ValueError("Conflicting observation at existing point timestamp")
-        conn.execute(
-            db.receipts.insert().values(
-                event_id=observation.event_id, digest=digest, received_at=now
-            )
+        claimed = db.insert_once(
+            conn,
+            db.receipts,
+            {
+                "event_id": observation.event_id,
+                "digest": digest,
+                "received_at": now,
+            },
+            [db.receipts.c.event_id],
         )
+        if not claimed:
+            receipt = (
+                conn.execute(
+                    db.receipts.select().where(db.receipts.c.event_id == observation.event_id)
+                )
+                .mappings()
+                .one()
+            )
+            if receipt["digest"] != digest:
+                raise ValueError("Event ID reused with different content")
+            db.log(conn, "duplicate", event_id=observation.event_id, point_id=observation.point_id)
+            return {"status": "duplicate"}
         conn.execute(db.telemetry.insert().values(**observation.model_dump(), received_at=now))
         latest = (
             conn.execute(db.current.select().where(db.current.c.point_id == observation.point_id))

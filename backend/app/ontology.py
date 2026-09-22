@@ -1,15 +1,20 @@
 import hashlib
 import json
 from collections import defaultdict
+from collections.abc import Iterable, Mapping
+from typing import Any
 
-from . import db
 from .schemas import RuleConfig
 
 
-class Registry:
-    def __init__(self, conn):
-        self.entities = {e["id"]: e for e in db.rows(conn, db.entities)}
-        self.edges = db.rows(conn, db.edges)
+class OntologyGraph:
+    def __init__(
+        self,
+        entities: Iterable[Mapping[str, Any]],
+        edges: Iterable[Mapping[str, Any]],
+    ):
+        self.entities = {e["id"]: dict(e) for e in entities}
+        self.edges = [dict(edge) for edge in edges]
         self._outgoing = defaultdict(list)
         self._incoming = defaultdict(list)
         for edge in self.edges:

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy.engine import Engine
 
 from app import db, rules
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 from app.persistence.records import require_record
 from app.schemas import Confirmation, RuleConfig
 
@@ -30,13 +30,13 @@ class RuleService:
 
     def validate(self, identity: str):
         with self.engine.connect() as conn:
-            return Registry(conn).validate(
+            return load_registry(conn).validate(
                 RuleConfig.model_validate(require_record(conn, db.versions, identity)["config"])
             )
 
     def preview(self, identity: str):
         with self.engine.connect() as conn:
-            return Registry(conn).preview(
+            return load_registry(conn).preview(
                 RuleConfig.model_validate(require_record(conn, db.versions, identity)["config"])
             )
 

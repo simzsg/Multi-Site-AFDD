@@ -1,207 +1,77 @@
-import { useCallback, useEffect, useState } from "react";
-import type {
-  AIResult,
-  Audit,
-  Edge,
-  Entity,
-  Issue,
-  Observation,
-  Pipeline,
-  Preview,
-  Rule,
-} from "../types";
-import { api } from "../lib/api";
-import { example, stale } from "../lib/format";
-import { useOntologyIndex } from "./useOntologyIndex";
+import { useCallback, useState } from "react";
+import type { AIResult, Issue, Preview, Rule } from "../types";
+import { errorMessage } from "../lib/api";
+import { example } from "../lib/format";
+import { useWorkspaceData } from "./useWorkspaceData";
+import { useWorkspaceProjection } from "./useWorkspaceProjection";
+
 export function useWorkspaceController() {
   const [view, setView] = useState<
     "overview" | "issues" | "rules" | "pipeline"
   >("overview");
-  const [entities, setEntities] = useState<Entity[]>([]),
-    [edges, setEdges] = useState<Edge[]>([]);
-  const [current, setCurrent] = useState<Record<string, Observation>>({}),
-    [issues, setIssues] = useState<Issue[]>([]),
-    [rules, setRules] = useState<Rule[]>([]);
-  const [pipeline, setPipeline] = useState<Pipeline>({
-      rejected: 0,
-      duplicates: 0,
-      pending_evaluations: 0,
-    }),
-    [audits, setAudits] = useState<Audit[]>([]);
-  const [loading, setLoading] = useState(true),
-    [error, setError] = useState(""),
-    [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
-  const [building, setBuilding] = useState(""),
-    [floor, setFloor] = useState(""),
-    [zone, setZone] = useState(""),
-    [query, setQuery] = useState("");
-  const [selectedIssue, setSelectedIssue] = useState(""),
-    [selectedRule, setSelectedRule] = useState("");
-  const [preview, setPreview] = useState<Preview | null>(null),
-    [editor, setEditor] = useState(""),
-    [confirmed, setConfirmed] = useState(false),
-    [reviewer, setReviewer] = useState("");
-  const [authorOpen, setAuthorOpen] = useState(false),
-    [prompt, setPrompt] = useState(example),
-    [mode, setMode] = useState<"demo" | "model">("demo"),
-    [aiResult, setAiResult] = useState<AIResult | null>(null);
-  const [modelConfigured, setModelConfigured] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [building, setBuilding] = useState("");
+  const [floor, setFloor] = useState("");
+  const [zone, setZone] = useState("");
+  const [query, setQuery] = useState("");
+  const [selectedIssue, setSelectedIssue] = useState("");
+  const [selectedRule, setSelectedRule] = useState("");
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [editor, setEditor] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [reviewer, setReviewer] = useState("");
+  const [authorOpen, setAuthorOpen] = useState(false);
+  const [prompt, setPrompt] = useState(example);
+  const [mode, setMode] = useState<"demo" | "model">("demo");
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
   const [auditFilter, setAuditFilter] = useState("");
-  const refresh = useCallback(async () => {
-    try {
-      const [e, rel, c, i, r, p, a, h] = await Promise.all([
-        api<Entity[]>("/entities"),
-        api<Edge[]>("/relationships"),
-        api<Record<string, Observation>>("/current"),
-        api<Issue[]>("/issues"),
-        api<Rule[]>("/rules"),
-        api<Pipeline>("/pipeline-health"),
-        api<Audit[]>(
-          `/audit?limit=40${auditFilter ? "&action=" + auditFilter : ""}`,
-        ),
-        api<{ model_configured: boolean }>("/health"),
-      ]);
-      setEntities(e);
-      setEdges(rel);
-      setCurrent(c);
-      setIssues(i);
-      setRules(r);
-      setPipeline(p);
-      setAudits(a);
-      setModelConfigured(h.model_configured);
-      setError("");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [auditFilter]);
-  useEffect(() => {
-    void refresh();
-    const id = setInterval(() => void refresh(), 10000);
-    return () => clearInterval(id);
-  }, [refresh]);
-  const act = async (fn: () => Promise<void>) => {
-    setBusy(true);
-    setNotice("");
-    try {
-      await fn();
-      await refresh();
-    } catch (e) {
-      setNotice(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const { entity, label, related, parent, zonesFor, floorsFor, buildingFor } =
-    useOntologyIndex(entities, edges);
-  const buildings = entities.filter((e) => e.kind === "Building");
-  const floors = entities.filter(
-    (e) =>
-      e.kind === "Floor" &&
-      (!building || parent(e.id, "Building")?.id === building),
+  const data = useWorkspaceData(auditFilter);
+  const projection = useWorkspaceProjection({
+    ...data,
+    building,
+    floor,
+    zone,
+    query,
+    selectedIssue,
+    selectedRule,
+  });
+
+  const act = useCallback(
+    async (operation: () => Promise<void>) => {
+      setBusy(true);
+      setNotice("");
+      try {
+        await operation();
+        await data.refresh();
+      } catch (operationError) {
+        setNotice(errorMessage(operationError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [data.refresh],
   );
-  const zones = entities.filter(
-    (e) =>
-      e.kind === "HVAC_Zone" &&
-      (!floor || parent(e.id, "Floor")?.id === floor) &&
-      (!building ||
-        parent(parent(e.id, "Floor")?.id ?? "", "Building")?.id === building),
-  );
-  const scopedAhus = entities.filter(
-    (e) =>
-      e.kind === "AHU" &&
-      (!building || buildingFor(e)?.id === building) &&
-      (!floor || floorsFor(e).some((f) => f.id === floor)) &&
-      (!zone || zonesFor(e).some((z) => z.id === zone)),
-  );
-  const ahus = scopedAhus.filter((e) =>
-    e.label.toLowerCase().includes(query.toLowerCase()),
-  );
-  const point = (eq: Entity, kind: string) =>
-    related(eq.id, "hasPoint").find((e) => e.kind === kind);
-  const filteredIssues = issues.filter((i) =>
-    ahus.some((e) => e.id === i.equipment_id),
-  );
-  const activeIssues = filteredIssues.filter((i) => i.status === "ACTIVE");
-  const issue = issues.find((i) => i.id === selectedIssue) ?? filteredIssues[0];
-  const rule = rules.find((r) => r.id === selectedRule);
-  const openRule = (r: Rule) => {
-    setSelectedRule(r.id);
-    setEditor(JSON.stringify(r.config, null, 2));
+  const openRule = useCallback((rule: Rule) => {
+    setSelectedRule(rule.id);
+    setEditor(JSON.stringify(rule.config, null, 2));
     setPreview(null);
     setConfirmed(false);
     setView("rules");
-  };
-  const openIssue = (i: Issue) => {
-    setSelectedIssue(i.id);
+  }, []);
+  const openIssue = useCallback((issue: Issue) => {
+    setSelectedIssue(issue.id);
     setView("issues");
-  };
-  const live = !stale(
-    pipeline.ingestion?.heartbeat_at ?? pipeline.ingestion?.last_received_at,
-    90,
-  );
-  const scopedRooms = new Set(
-    scopedAhus.flatMap((eq) =>
-      zonesFor(eq).flatMap((z) => related(z.id, "hasPart").map((r) => r.id)),
-    ),
-  );
-  const scopedFloors = new Set(
-    scopedAhus.flatMap((eq) => floorsFor(eq).map((f) => f.id)),
-  );
-  const contextEquipment = entities.filter(
-    (e) =>
-      (e.kind === "IAQ_Device" &&
-        related(e.id, "hasLocation").some((r) => scopedRooms.has(r.id))) ||
-      (e.kind === "Electrical_Meter" &&
-        [
-          ...related(e.id, "measuresSpace"),
-          ...related(e.id, "hasLocation"),
-        ].some((f) => scopedFloors.has(f.id))),
-  );
-  const scopedPoints = ahus.flatMap((eq) => related(eq.id, "hasPoint"));
-  const servedRoomCount = new Set(
-    ahus.flatMap((eq) =>
-      zonesFor(eq).flatMap((z) =>
-        related(z.id, "hasPart")
-          .filter((r) => r.kind === "Room")
-          .map((r) => r.id),
-      ),
-    ),
-  ).size;
-  const freshCount = scopedPoints.filter(
-    (p) =>
-      current[p.id] &&
-      !stale(current[p.id].device_timestamp) &&
-      current[p.id].quality === "GOOD",
-  ).length;
+  }, []);
 
   return {
+    ...data,
+    ...projection,
     view,
     setView,
-    entities,
-    setEntities,
-    edges,
-    setEdges,
-    current,
-    setCurrent,
-    issues,
-    setIssues,
-    rules,
-    setRules,
-    pipeline,
-    setPipeline,
-    audits,
-    setAudits,
-    loading,
-    setLoading,
-    error,
-    setError,
     notice,
     setNotice,
     busy,
-    setBusy,
     building,
     setBuilding,
     floor,
@@ -230,36 +100,10 @@ export function useWorkspaceController() {
     setMode,
     aiResult,
     setAiResult,
-    modelConfigured,
-    setModelConfigured,
     auditFilter,
     setAuditFilter,
-    refresh,
     act,
-    entity,
-    label,
-    related,
-    parent,
-    zonesFor,
-    floorsFor,
-    buildingFor,
-    buildings,
-    floors,
-    zones,
-    ahus,
-    point,
-    filteredIssues,
-    activeIssues,
-    issue,
-    rule,
     openRule,
     openIssue,
-    live,
-    scopedRooms,
-    scopedFloors,
-    contextEquipment,
-    scopedPoints,
-    servedRoomCount,
-    freshCount,
   };
 }

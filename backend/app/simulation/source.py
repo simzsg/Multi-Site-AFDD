@@ -5,7 +5,7 @@ from redis import Redis
 from sqlalchemy.engine import Engine
 
 from app import db, starter_pack
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 
 from .options import SourceOptions
 
@@ -20,7 +20,7 @@ def source_simulate(engine: Engine, args: SourceOptions, *, client: Redis, strea
                     break
             time.sleep(1)
     with engine.connect() as conn:
-        registry = Registry(conn)
+        registry = load_registry(conn)
     selected = args.buildings.split(",") if args.buildings else None
     if selected and any(registry.entities.get(b, {}).get("kind") != "Building" for b in selected):
         raise ValueError("Unknown building selection")

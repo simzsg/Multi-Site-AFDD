@@ -61,7 +61,12 @@ telemetry = Table(
     Column("source", JSON),
     Column("received_at", DateTime(timezone=True)),
 )
-Index("ix_telemetry_point_time", telemetry.c.point_id, telemetry.c.device_timestamp)
+Index(
+    "uq_telemetry_point_time",
+    telemetry.c.point_id,
+    telemetry.c.device_timestamp,
+    unique=True,
+)
 
 current = Table(
     "current_values", metadata, Column("point_id", String, primary_key=True), Column("data", JSON)
@@ -173,6 +178,21 @@ def put(conn, table, key, value):
             set_={name: statement.excluded[name] for name in value},
         )
     )
+
+
+def insert_once(conn, table, values, conflict_columns):
+    if conn.dialect.name == "postgresql":
+        statement = pg_insert(table).values(**values)
+    elif conn.dialect.name == "sqlite":
+        statement = sqlite_insert(table).values(**values)
+    else:
+        raise RuntimeError(f"Unsupported database dialect: {conn.dialect.name}")
+    result = conn.execute(
+        statement.on_conflict_do_nothing(index_elements=list(conflict_columns)).returning(
+            conflict_columns[0]
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 def lock(conn, scope, identity):

@@ -3,12 +3,12 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from . import db
-from .ontology import Registry
+from .persistence.ontology import load_registry
 from .schemas import RuleConfig
 
 
 def create(conn, config: RuleConfig, rule_id=None):
-    validation = Registry(conn).validate(config)
+    validation = load_registry(conn).validate(config)
     if not validation["valid"]:
         raise ValueError("; ".join(validation["errors"]))
     rule_id = rule_id or str(uuid4())
@@ -66,7 +66,7 @@ def activate(conn, version, confirmation, source_replay_start=None):
     )
     if version["status"] != "DRAFT":
         raise ValueError("Only a draft can be activated; adjust to create a new version")
-    registry = Registry(conn)
+    registry = load_registry(conn)
     config = RuleConfig.model_validate(version["config"])
     validation = registry.validate(config)
     if not validation["valid"]:

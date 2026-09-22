@@ -8,7 +8,7 @@ import httpx
 from pydantic import ValidationError
 
 from . import db, rules
-from .ontology import Registry
+from .persistence.ontology import load_registry
 from .schemas import RuleConfig, StrictModel
 
 
@@ -121,7 +121,7 @@ def author(engine, request, provider=None):
     try:
         record["state"] = "DISCOVERING"
         with engine.connect() as conn:
-            registry = Registry(conn)
+            registry = load_registry(conn)
             catalogue = [
                 {"id": e["id"], "label": e["label"], "kind": e["kind"], "data": e["data"]}
                 for e in registry.entities.values()
@@ -149,7 +149,7 @@ def author(engine, request, provider=None):
             config = RuleConfig.model_validate_json(decision.config_json)
             record["state"] = "VALIDATING"
             with engine.connect() as conn:
-                registry = Registry(conn)
+                registry = load_registry(conn)
                 validation = registry.validate(config)
                 preview = registry.preview(config) if validation["valid"] else None
             trace("validate_rule", validation, attempt)

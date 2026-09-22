@@ -1,7 +1,9 @@
+import ast
 import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -12,6 +14,22 @@ from app.config import Settings
 from app.schemas import Confirmation, RuleConfig
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+
+
+def test_ontology_domain_has_no_database_dependency():
+    source = Path("backend/app/ontology.py").read_text()
+    tree = ast.parse(source)
+    modules = {
+        name.name for node in ast.walk(tree) if isinstance(node, ast.Import) for name in node.names
+    } | {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    imported_names = {
+        name.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for name in node.names
+    }
+    assert "db" not in imported_names
+    assert not any(module.startswith("sqlalchemy") for module in modules)
 
 
 @pytest.mark.parametrize("migration_fails", [False, True])

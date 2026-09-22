@@ -81,7 +81,14 @@ class IngestionWorker:
                     broker_message_id=message_id,
                 )
             else:
-                for observation in frame:
+                ordered = sorted(
+                    frame,
+                    key=lambda item: (
+                        str(item.get("point_id", "")) if isinstance(item, dict) else "",
+                        str(item.get("event_id", "")) if isinstance(item, dict) else "",
+                    ),
+                )
+                for observation in ordered:
                     ingest(conn, observation)
         else:
             ingest(conn, payload)

@@ -4,7 +4,7 @@ import pytest
 from app import db, rules, schema, starter_pack
 from app.evaluator import drain
 from app.ingestion import ingest
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 from app.schemas import Confirmation, RuleConfig
 from app.seed import import_inventory
 from app.simulation.live import live_event
@@ -22,7 +22,7 @@ def source_engine():
 
 def test_supplied_inventory_and_measurement_scope(source_engine):
     with source_engine.connect() as conn:
-        registry = Registry(conn)
+        registry = load_registry(conn)
         counts = Counter(e["kind"] for e in registry.entities.values())
         assert counts["Building"] == 3
         assert counts["Room"] == 54
@@ -76,7 +76,7 @@ def test_live_source_events_keep_provenance_and_duplicate_semantics():
 
 def test_blank_measurement_is_null_not_fake_normal(source_engine):
     with db.transaction(source_engine) as conn:
-        registry = Registry(conn)
+        registry = load_registry(conn)
         row = next(
             item[-1]
             for item in starter_pack.source_schedule()
@@ -97,7 +97,7 @@ def test_source_deviation_windows_with_and_without_override(source_engine):
         for overrides in [{}, {"building-b": {"threshold": 2}}]:
             config = RuleConfig(overrides=overrides)
             version = rules.create(conn, config)
-            preview = Registry(conn).preview(config)
+            preview = load_registry(conn).preview(config)
             rules.activate(
                 conn,
                 version,
@@ -106,7 +106,7 @@ def test_source_deviation_windows_with_and_without_override(source_engine):
                 ),
                 source_replay_start="2026-01-15T08:00:00Z",
             )
-        registry = Registry(conn)
+        registry = load_registry(conn)
         wanted = {"ahu-a-f02-east", "ahu-a-f03-west", "ahu-b-f01-west", "ahu-b-f04-east"}
         for _, events in starter_pack.batches(registry):
             for event in events:

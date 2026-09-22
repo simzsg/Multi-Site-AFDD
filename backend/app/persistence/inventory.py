@@ -4,7 +4,7 @@ from sqlalchemy import or_
 from sqlalchemy.engine import Engine
 
 from app import db
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 from app.semantic import entity as semantic_entity
 from app.semantic import relationship as semantic_relationship
 
@@ -55,7 +55,7 @@ class InventoryQueries:
     def spaces(self, identity: str):
         with self.engine.connect() as conn:
             require_record(conn, db.entities, identity)
-            spaces = Registry(conn).spaces(identity)
+            spaces = load_registry(conn).spaces(identity)
             return {
                 **spaces,
                 "zones": [semantic_entity(entity) for entity in spaces["zones"]],
@@ -68,6 +68,6 @@ class InventoryQueries:
             require_record(conn, db.entities, identity)
             return [
                 semantic_entity(entity)
-                for entity in Registry(conn).related(identity, "hasPart")
+                for entity in load_registry(conn).related(identity, "hasPart")
                 if entity["kind"] == "Room"
             ]

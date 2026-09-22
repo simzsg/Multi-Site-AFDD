@@ -4,7 +4,7 @@ import pytest
 from app import db, evaluator, rules
 from app.evaluator import drain
 from app.ingestion import ingest
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 from app.schemas import Confirmation, RuleConfig
 
 BASE = db.utcnow() - timedelta(hours=4)
@@ -38,7 +38,7 @@ def frame(conn, minute, sat=20, run=1, missing=False, quality="GOOD"):
 def active(conn, **kwargs):
     config = RuleConfig(**kwargs)
     v = rules.create(conn, config)
-    preview = Registry(conn).preview(config)
+    preview = load_registry(conn).preview(config)
     v = rules.activate(
         conn, v, Confirmation(confirmed=True, preview_digest=preview["digest"], reviewer="test")
     )
@@ -51,7 +51,7 @@ def active(conn, **kwargs):
 
 def test_inventory_and_relationships(engine):
     with db.transaction(engine) as c:
-        r = Registry(c)
+        r = load_registry(c)
         for kind, count in [
             ("Building", 3),
             ("Floor", 12),
@@ -73,6 +73,11 @@ def test_ingestion(engine):
         assert ingest(c, e)["status"] == "accepted"
         assert ingest(c, e)["status"] == "duplicate"
         assert ingest(c, {**e, "value": 0})["status"] == "rejected"
+        collision = {**e, "event_id": "same-point-and-time"}
+        assert ingest(c, collision)["status"] == "rejected"
+        assert not c.execute(
+            db.receipts.select().where(db.receipts.c.event_id == collision["event_id"])
+        ).first()
         assert ingest(c, event("Run_Status", 5, 0))["current_updated"] is False
         assert db.rows(c, db.current)[0]["data"]["value"] == 1
         assert len(db.rows(c, db.telemetry)) == 2
@@ -163,7 +168,7 @@ def test_override_and_missing_point(engine):
             frame(c, minute, sat=22)
         assert db.rows(c, db.issues)[0]["data"]["threshold"] == 5
         c.execute(db.edges.delete().where(db.edges.c.target == f"{EQ}-Run_Status"))
-        preview = Registry(c).preview(RuleConfig())
+        preview = load_registry(c).preview(RuleConfig())
         assert any(
             e["equipment_id"] == EQ and "Run_Status" in e["missing_points"]
             for e in preview["exclusions"]
@@ -220,10 +225,10 @@ def test_wrong_service_relationship_and_stale_confirmation(engine):
     with db.transaction(engine) as c:
         config = RuleConfig()
         version = rules.create(c, config)
-        preview = Registry(c).preview(config)
+        preview = load_registry(c).preview(config)
         c.execute(db.edges.delete().where(db.edges.c.source == EQ, db.edges.c.relation == "feeds"))
         c.execute(db.edges.insert().values(source=EQ, relation="feeds", target="demo-a-plant"))
-        new_preview = Registry(c).preview(config)
+        new_preview = load_registry(c).preview(config)
         assert EQ not in [m["equipment_id"] for m in new_preview["matches"]]
         with pytest.raises(ValueError, match="Preview changed"):
             rules.activate(

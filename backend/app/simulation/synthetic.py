@@ -6,7 +6,7 @@ from redis import Redis
 from sqlalchemy.engine import Engine
 
 from app import db
-from app.ontology import Registry
+from app.persistence.ontology import load_registry
 
 from .options import SyntheticOptions
 
@@ -79,7 +79,7 @@ def readings(registry, at, step, mode="normal", building_ids=None, run_id=None):
 def simulate(engine: Engine, args: SyntheticOptions, *, client: Redis, stream: str):
     run_id = str(uuid4())
     with engine.connect() as conn:
-        registry = Registry(conn)
+        registry = load_registry(conn)
     if args.buildings and any(
         registry.entities.get(b, {}).get("kind") != "Building" for b in args.buildings.split(",")
     ):
